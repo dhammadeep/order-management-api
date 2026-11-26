@@ -6,6 +6,7 @@ use App\Http\Order\Controllers\OrderController;
 use App\Http\Payment\Controllers\PaymentWebhookController;
 use App\Http\Payment\Middleware\VerifyPaymentWebhookSignature;
 use App\Http\Product\Controllers\ProductController;
+use App\Http\Report\Controllers\ReportController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', fn () => ResponseHelper::respond(
@@ -36,6 +37,9 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.products.show');
 
     Route::middleware('role:admin')->group(function (): void {
+        Route::get('/admin/reports/top-products', [ReportController::class, 'topProducts'])
+            ->name('api.admin.reports.top-products');
+
         Route::post('/products', [ProductController::class, 'store'])->name('api.products.store');
         Route::put('/products/{id}', [ProductController::class, 'update'])
             ->whereNumber('id')

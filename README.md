@@ -437,6 +437,42 @@ docker compose exec -e DB_CONNECTION=mysql app php artisan test
 
 Product endpoints return 401 without a valid token, 403 when an authenticated role lacks permission, 404 when a product is missing or not visible to a customer, and 422 for invalid input.
 
+## Admin top-products report
+
+`GET /api/admin/reports/top-products` requires a Sanctum bearer token for an admin account. Both `from_date` and `to_date` are required in `YYYY-MM-DD` format; `to_date` must be the same day or later. The interval includes both complete calendar days and uses the order creation timestamp.
+
+Only `paid` and `shipped` orders count as sold. Pending and cancelled orders are excluded. Quantities are summed from saved order-item product snapshots, so later catalog edits or product soft deletion do not rewrite historical report names or SKUs. Results are ordered by quantity sold descending and product ID ascending for ties, with at most five rows. A valid interval without sales returns an empty `data.products` array.
+
+Example request:
+
+```http
+GET /api/admin/reports/top-products?from_date=2026-06-01&to_date=2026-06-30
+Authorization: Bearer <admin-token>
+```
+
+Example response:
+
+```json
+{
+  "success": true,
+  "message": "Top products report generated successfully.",
+  "data": {
+    "products": [
+      {
+        "product_id": 12,
+        "product_name": "Insulated Bottle",
+        "product_sku": "BOTTLE-12",
+        "total_quantity_sold": 27
+      }
+    ]
+  }
+}
+```
+
+The report is calculated by one SQL aggregate query that joins order items to orders, filters by order date and eligible status, groups the snapshots, sums quantities, sorts, and applies `LIMIT 5`. The orders table has a composite status/date index to support the report filters.
+
+Unauthenticated requests receive 401, authenticated customers receive 403, and invalid/missing dates receive 422.
+
 ### Product tests and sample catalog
 
 ```bash
