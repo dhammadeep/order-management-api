@@ -24,20 +24,27 @@ final class ReportRepository
         $from = CarbonImmutable::parse($fromDate, config('app.timezone'))->startOfDay();
         $through = CarbonImmutable::parse($toDate, config('app.timezone'))->endOfDay();
 
-        return DB::table('order_items')
-            ->join('orders', 'orders.id', '=', 'order_items.order_id')
-            ->whereIn('orders.status', [OrderStatus::Paid->value, OrderStatus::Shipped->value])
-            ->where('orders.created_at', '>=', $from)
-            ->where('orders.created_at', '<=', $through)
+        $sales = DB::table('order_items as sold_items')
+            ->join('orders as sold_orders', 'sold_orders.id', '=', 'sold_items.order_id')
+            ->whereIn('sold_orders.status', [OrderStatus::Paid->value, OrderStatus::Shipped->value])
+            ->where('sold_orders.created_at', '>=', $from)
+            ->where('sold_orders.created_at', '<=', $through)
+            ->select('sold_items.product_id')
+            ->selectRaw('SUM(sold_items.quantity) AS total_quantity_sold')
+            ->selectRaw('MAX(sold_items.id) AS snapshot_item_id')
+            ->groupBy('sold_items.product_id');
+
+        return DB::query()
+            ->fromSub($sales, 'sales')
+            ->join('order_items as latest_snapshot', 'latest_snapshot.id', '=', 'sales.snapshot_item_id')
             ->select([
-                'order_items.product_id',
-                'order_items.product_name',
-                'order_items.product_sku',
+                'sales.product_id',
+                'latest_snapshot.product_name',
+                'latest_snapshot.product_sku',
+                'sales.total_quantity_sold',
             ])
-            ->selectRaw('SUM(order_items.quantity) AS total_quantity_sold')
-            ->groupBy('order_items.product_id', 'order_items.product_name', 'order_items.product_sku')
-            ->orderByDesc('total_quantity_sold')
-            ->orderBy('order_items.product_id')
+            ->orderByDesc('sales.total_quantity_sold')
+            ->orderBy('sales.product_id')
             ->limit(5)
             ->get();
     }

@@ -10,6 +10,8 @@ Order creation calculates prices from locked database product rows and stores pu
 
 Payment notifications authenticate the exact raw request body with HMAC-SHA256 and `hash_equals`. A unique provider transaction ID is the database idempotency constraint. Payment processing locks the order, checks that it is still pending, inserts the payment, and marks the order paid in one transaction. Duplicate deliveries for that order return the existing payment; reuse for another order conflicts.
 
+The top-products report aggregates once per product ID in SQL. When historical item snapshots differ for a product, it displays the latest qualifying snapshot while including quantities from every qualifying item row.
+
 The confirmation mailable implements Laravel's queued after-commit contract and permits three attempts with backoff. The local mail transport is intentionally redacted and does not deliver mail. Expired-order cancellation shares the order lock with payment, then locks products in ascending ID order and restores stock together with the cancelled status in a retried transaction. The Laravel 11 scheduler runs that command every minute with overlap prevention; operators must run a scheduler process separately from the queue worker.
 
 ## Trade-offs and limitations

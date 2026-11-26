@@ -86,6 +86,22 @@ final class TopProductsReportTest extends TestCase
             ->assertJsonPath('data.products.0.total_quantity_sold', 6);
     }
 
+    public function test_catalog_edits_do_not_split_sales_for_one_product_into_duplicate_rows(): void
+    {
+        $admin = $this->userWithRole(UserRole::Admin);
+        $product = Product::factory()->create(['name' => 'Original Name', 'sku' => 'ORIGINAL-1']);
+        $this->recordSale($product, OrderStatus::Paid, '2026-06-10 12:00:00', 3, 'Original Name', 'ORIGINAL-1');
+        $this->recordSale($product, OrderStatus::Paid, '2026-06-20 12:00:00', 4, 'Updated Snapshot Name', 'UPDATED-1');
+
+        $this->asAdmin($admin)->getJson($this->reportUrl())
+            ->assertOk()
+            ->assertJsonCount(1, 'data.products')
+            ->assertJsonPath('data.products.0.product_id', $product->id)
+            ->assertJsonPath('data.products.0.product_name', 'Updated Snapshot Name')
+            ->assertJsonPath('data.products.0.product_sku', 'UPDATED-1')
+            ->assertJsonPath('data.products.0.total_quantity_sold', 7);
+    }
+
     public function test_report_returns_an_empty_products_array_when_there_are_no_sales(): void
     {
         $admin = $this->userWithRole(UserRole::Admin);

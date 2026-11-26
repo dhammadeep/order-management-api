@@ -246,7 +246,7 @@ $signature = hash_hmac('sha256', $rawBody, $localOnlySecret);
 | --- | --- | --- |
 | GET | `/api/admin/reports/top-products` | Admin Sanctum token |
 
-Required query parameters are `from_date` and `to_date` in `YYYY-MM-DD` format, with `to_date` on/after `from_date`. Both full calendar days are included; filtering uses `orders.created_at`. The report counts only paid and shipped orders, sums order-item snapshot quantities in one aggregate JOIN/SUM/GROUP BY query, sorts quantity descending then product ID ascending, and returns at most five rows. It does not join the current catalog, so soft deletion and catalog edits do not replace saved snapshot names/SKUs. No matches returns an empty array.
+Required query parameters are `from_date` and `to_date` in `YYYY-MM-DD` format, with `to_date` on/after `from_date`. Both full calendar days are included; filtering uses `orders.created_at`. The report counts only paid and shipped orders, sums order-item snapshot quantities by product ID in one aggregate JOIN/SUM/GROUP BY query, sorts quantity descending then product ID ascending, and returns at most five rows. If a product's snapshot name/SKU changed within the interval, the response shows the latest stored qualifying item snapshot while still summing every qualifying line. It does not join the current catalog, so soft deletion and later catalog edits do not replace saved snapshot values. No matches returns an empty array.
 
 ```text
 GET /api/admin/reports/top-products?from_date=2026-06-01&to_date=2026-06-30
