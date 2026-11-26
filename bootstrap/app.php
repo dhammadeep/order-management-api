@@ -2,6 +2,7 @@
 
 use App\Helpers\ResponseHelper;
 use App\Http\Auth\Middleware\EnsureUserHasRole;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -37,6 +38,15 @@ return Application::configure(basePath: dirname(__DIR__))
                 return ResponseHelper::respond(
                     code: 401,
                     message: 'Unauthenticated.',
+                );
+            }
+        });
+
+        $exceptions->render(function (AuthorizationException $exception, Request $request) {
+            if ($request->is('api/*')) {
+                return ResponseHelper::respond(
+                    code: 403,
+                    message: 'You are not authorized to access this resource.',
                 );
             }
         });
