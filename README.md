@@ -140,3 +140,115 @@ Run the feature suite inside the app container against the configured MySQL data
 ```bash
 docker compose exec -e DB_CONNECTION=mysql app php artisan test --filter=AuthenticationTest
 ```
+
+## Products
+
+Every product endpoint requires a Sanctum Bearer token. Admins can create, update, delete, view, list, and filter products. Customers can list and view active products, search, and paginate. Product deletion is a soft delete; deleted and inactive products are hidden from customer queries.
+
+| Method | Endpoint | Permission |
+| --- | --- | --- |
+| POST | `/api/products` | Admin |
+| PUT | `/api/products/{id}` | Admin |
+| GET | `/api/products` | Admin or customer |
+| GET | `/api/products/{id}` | Admin or customer, subject to visibility |
+| DELETE | `/api/products/{id}` | Admin |
+
+### Create a product
+
+`POST /api/products` with an admin Bearer token:
+
+```json
+{
+  "name": "Stainless Steel Water Bottle",
+  "sku": "HOME-BTL-101",
+  "price": "18.50",
+  "stock_quantity": 24,
+  "status": "active"
+}
+```
+
+For example, send an admin request with the token returned by admin login:
+
+```bash
+curl -X POST http://localhost:8080/api/products \
+  -H 'Accept: application/json' \
+  -H 'Authorization: Bearer <ADMIN_TOKEN>' \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Stainless Steel Water Bottle","sku":"HOME-BTL-101","price":"18.50","stock_quantity":24,"status":"active"}'
+```
+
+`PUT /api/products/1` accepts the same fields as a partial update. For example:
+
+```json
+{
+  "price": "19.95",
+  "stock_quantity": 30
+}
+```
+
+### Search and paginate
+
+Customers can search active products by name or SKU. Results use database pagination; `per_page` is limited to 100.
+
+```text
+GET /api/products?search=bottle&page=1&per_page=15
+GET /api/products?search=HOME-BTL&per_page=5
+```
+
+For example, a customer lists matching active products with their own token:
+
+```bash
+curl 'http://localhost:8080/api/products?search=bottle&page=1&per_page=15' \
+  -H 'Accept: application/json' \
+  -H 'Authorization: Bearer <CUSTOMER_TOKEN>'
+```
+
+Admins can filter either status:
+
+```text
+GET /api/products?status=inactive&page=1&per_page=20
+```
+
+Customers are always restricted to active products. Requesting the inactive status filter returns 403. An inactive or soft-deleted product requested by ID returns 404 to a customer.
+
+The response includes an explicit product representation and pagination metadata:
+
+```json
+{
+  "success": true,
+  "message": "Products retrieved successfully.",
+  "data": {
+    "products": [
+      {
+        "id": 1,
+        "name": "Stainless Steel Water Bottle",
+        "sku": "HOME-BTL-101",
+        "price": "18.50",
+        "stock_quantity": 24,
+        "status": "active",
+        "created_at": "2026-11-26T12:00:00.000000Z",
+        "updated_at": "2026-11-26T12:00:00.000000Z"
+      }
+    ],
+    "pagination": {
+      "current_page": 1,
+      "per_page": 15,
+      "total": 1,
+      "last_page": 1,
+      "from": 1,
+      "to": 1
+    }
+  }
+}
+```
+
+Product endpoints return 401 without a valid token, 403 when an authenticated role lacks permission, 404 when a product is missing or not visible to a customer, and 422 for invalid input.
+
+### Product tests and sample catalog
+
+```bash
+docker compose exec -e DB_CONNECTION=mysql app php artisan test --filter=ProductManagementTest
+docker compose exec app php artisan db:seed --class=ProductSeeder
+```
+
+The product seeder uses SKU-based upserts, so it can be run repeatedly without duplicating its sample catalog.
