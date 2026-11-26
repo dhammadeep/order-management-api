@@ -29,8 +29,7 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 WORKDIR /var/www/html
 
 COPY composer.json composer.lock ./
-# Laravel 11 is required by the assignment; Composer currently blocks its releases due to advisories.
-RUN composer install --no-interaction --prefer-dist --no-scripts --no-autoloader --no-security-blocking
+RUN composer install --no-interaction --prefer-dist --no-scripts --no-autoloader
 
 COPY . .
 RUN composer dump-autoload --optimize \
