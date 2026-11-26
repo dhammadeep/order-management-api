@@ -331,6 +331,38 @@ docker compose exec -e DB_CONNECTION=mysql app php artisan test --filter=Order
 docker compose exec -e DB_CONNECTION=mysql app php artisan test
 ```
 
+## Queued order confirmation email
+
+After an order transaction commits, the API queues one `OrderConfirmationMail` to the customer's saved email address. The message uses the saved order number, total, and item snapshots. A failed order does not queue mail. Queue dispatch errors are logged with the order ID and exception type only; permanent delivery failures use Laravel's failed-job handling and a sanitized application log entry.
+
+The default settings in `.env.example` are:
+
+```dotenv
+QUEUE_CONNECTION=database
+MAIL_MAILER=log
+MAIL_FROM_ADDRESS="hello@example.com"
+MAIL_FROM_NAME="${APP_NAME}"
+```
+
+With `MAIL_MAILER=log`, the order service routes this mailable through the local `redacted_log` transport. It records only that the local transport handled a message; it does not log recipient addresses or message content, and it does not deliver email. To deliver real messages, set `MAIL_MAILER=smtp` and configure `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM_ADDRESS`, and `MAIL_FROM_NAME` with your SMTP provider's values. The SMTP credentials belong in the untracked `.env`, never in Git.
+
+The Compose `queue` service runs `php artisan queue:work database --sleep=3 --tries=3 --timeout=90`. Start or restart it with:
+
+```bash
+docker compose up -d queue
+docker compose logs -f queue
+```
+
+Each confirmation allows at most three attempts, with 10-second and 30-second delays before retries. After the final failure Laravel stores the job in `failed_jobs`; inspect or retry failed jobs with `php artisan queue:failed` and `php artisan queue:retry <id>`. The mailer's `ShouldQueueAfterCommit` contract also defers dispatch when an outer database transaction is still open.
+
+Run the focused order confirmation tests and full PHPUnit suite inside Docker:
+
+```bash
+docker compose exec -e DB_CONNECTION=mysql app php artisan test --filter=OrderConfirmationTest
+docker compose exec -e DB_CONNECTION=mysql app php artisan test --filter=RedactedLogTransportTest
+docker compose exec -e DB_CONNECTION=mysql app php artisan test
+```
+
 Product endpoints return 401 without a valid token, 403 when an authenticated role lacks permission, 404 when a product is missing or not visible to a customer, and 422 for invalid input.
 
 ### Product tests and sample catalog

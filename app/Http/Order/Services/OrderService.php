@@ -10,13 +10,17 @@ use App\Http\Order\Models\Order;
 use App\Http\Order\Repositories\OrderRepository;
 use App\Http\Product\Enums\ProductStatus;
 use App\Http\Product\Repositories\ProductRepository;
+use App\Mail\OrderConfirmationMail;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * Applies order rules and coordinates locked stock and order persistence.
@@ -115,8 +119,23 @@ final class OrderService
             return $order->id;
         }, attempts: 3);
 
-        return $this->orders->findByIdWithItems($orderId)
+        $order = $this->orders->findByIdWithItems($orderId)
             ?? throw (new ModelNotFoundException)->setModel(Order::class, [$orderId]);
+
+        try {
+            $pendingMail = config('mail.default') === 'log'
+                ? Mail::mailer('redacted_log')->to($customer->email)
+                : Mail::to($customer->email);
+
+            $pendingMail->queue(new OrderConfirmationMail($order));
+        } catch (Throwable $exception) {
+            Log::error('Order confirmation email could not be queued.', [
+                'order_id' => $order->getKey(),
+                'exception_type' => $exception::class,
+            ]);
+        }
+
+        return $order;
     }
 
     public function find(int $id): ?Order

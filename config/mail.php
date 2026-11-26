@@ -75,6 +75,11 @@ return [
             'channel' => env('MAIL_LOG_CHANNEL'),
         ],
 
+        'redacted_log' => [
+            'transport' => 'redacted_log',
+            'channel' => env('MAIL_LOG_CHANNEL'),
+        ],
+
         'array' => [
             'transport' => 'array',
         ],
