@@ -7,6 +7,8 @@ namespace App\Http\Product\Repositories;
 use App\Http\Product\Enums\ProductStatus;
 use App\Http\Product\Models\Product;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Query\Expression;
 use Illuminate\Pagination\LengthAwarePaginator;
 
 /**
@@ -16,6 +18,44 @@ use Illuminate\Pagination\LengthAwarePaginator;
  */
 final class ProductRepository
 {
+    /**
+     * Lock product rows in ascending ID order for an atomic order operation.
+     * Soft-deleted rows are included so callers can reject them after locking.
+     *
+     * @param  list<int>  $productIds
+     * @return Collection<int, Product>
+     */
+    public function lockForOrder(array $productIds): Collection
+    {
+        sort($productIds, SORT_NUMERIC);
+
+        return Product::withTrashed()
+            ->whereIn('id', $productIds)
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+    }
+
+    /**
+     * Decrement all already-locked product rows with one bulk SQL update.
+     * IDs and quantities are converted to integers before being embedded in the CASE expression.
+     *
+     * @param  array<int, int>  $quantitiesByProductId
+     */
+    public function decrementStockQuantities(array $quantitiesByProductId): void
+    {
+        $cases = collect($quantitiesByProductId)
+            ->map(fn (int $quantity, int|string $productId): string => 'WHEN '.(int) $productId.' THEN stock_quantity - '.(int) $quantity)
+            ->implode(' ');
+        $productIds = array_map('intval', array_keys($quantitiesByProductId));
+
+        Product::withTrashed()
+            ->whereIn('id', $productIds)
+            ->update([
+                'stock_quantity' => new Expression('CASE id '.$cases.' ELSE stock_quantity END'),
+            ]);
+    }
+
     /**
      * @param  array{name: string, sku: string, price: numeric-string|int|float, stock_quantity: int, status: string}  $attributes
      */
