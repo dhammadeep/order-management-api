@@ -6,7 +6,10 @@ namespace App\Http\Order\Repositories;
 
 use App\Http\Order\Enums\OrderStatus;
 use App\Http\Order\Models\Order;
+use App\Http\Order\Models\OrderItem;
+use Carbon\CarbonInterface;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 
 /**
  * Database access for order records and their purchase snapshots.
@@ -21,6 +24,41 @@ final class OrderRepository
             ->whereKey($id)
             ->lockForUpdate()
             ->first();
+    }
+
+    /**
+     * Return the next bounded page of possibly expired pending order IDs.
+     * Eligibility is checked again after locking in the cancellation service.
+     *
+     * @return Collection<int, int>
+     */
+    public function expiredPendingOrderIds(CarbonInterface $cutoff, int $afterId, int $limit): Collection
+    {
+        return Order::query()
+            ->where('status', OrderStatus::Pending->value)
+            ->where('created_at', '<', $cutoff)
+            ->where('id', '>', $afterId)
+            ->orderBy('id')
+            ->limit($limit)
+            ->pluck('id')
+            ->map(static fn (int|string $id): int => (int) $id);
+    }
+
+    /**
+     * Sum item quantities by product to support one stock restoration per product.
+     *
+     * @return array<int, int>
+     */
+    public function productQuantitiesForOrder(int $orderId): array
+    {
+        return OrderItem::query()
+            ->where('order_id', $orderId)
+            ->selectRaw('product_id, SUM(quantity) AS quantity_to_restore')
+            ->groupBy('product_id')
+            ->orderBy('product_id')
+            ->pluck('quantity_to_restore', 'product_id')
+            ->map(static fn (int|string $quantity): int => (int) $quantity)
+            ->all();
     }
 
     public function markPaid(Order $order): void

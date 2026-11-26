@@ -473,6 +473,29 @@ The report is calculated by one SQL aggregate query that joins order items to or
 
 Unauthenticated requests receive 401, authenticated customers receive 403, and invalid/missing dates receive 422.
 
+## Expired pending order cancellation
+
+Run `php artisan orders:cancel-expired` to find pending orders created more than 30 minutes ago. The command locks each candidate order and rechecks its status and age before proceeding. In one transaction it locks the related product rows in ascending ID order, restores stock for every order item, and marks the order cancelled. A concurrent payment update uses the same order-row lock, so whichever operation commits first determines the valid status; a paid order is never cancelled or restocked by a later run. Failed order transactions roll back both the stock update and status change.
+
+Laravel 11 registers the command in `routes/console.php` to run every minute with `withoutOverlapping()`. In production, run one scheduler process continuously:
+
+```bash
+php artisan schedule:work
+```
+
+Alternatively, configure the host scheduler (cron) to invoke `php artisan schedule:run` every minute. The Docker queue worker does not run the scheduler. For local Docker development, start a separate process in the app container:
+
+```bash
+docker compose exec app php artisan schedule:work
+```
+
+The focused cancellation and MySQL payment/cancellation contention tests are:
+
+```bash
+docker compose exec -e DB_CONNECTION=mysql app php artisan test --filter=ExpiredOrderCancellation
+docker compose exec -e DB_CONNECTION=mysql app php artisan test --filter=ExpiredCancellationPaymentConcurrency
+```
+
 ### Product tests and sample catalog
 
 ```bash
