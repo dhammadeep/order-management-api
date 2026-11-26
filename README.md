@@ -1,106 +1,97 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Order Management API
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A Laravel 11 REST API for customer accounts, product catalog management, transactional orders, payment notifications, sales reporting, and automatic release of stock reserved by expired orders.
 
-## About Laravel
+## Stack and requirements
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- Laravel 11.57, PHP 8.3, PHP-FPM, and Nginx
+- MySQL 8 with InnoDB transactions and row-level locks
+- Laravel Sanctum personal access tokens
+- Laravel database queue and Mail
+- Docker Desktop with WSL2 integration (no local PHP or MySQL installation required)
+- Postman for manual API exploration
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Architecture
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+Feature modules live under `app/Http/{Auth,Product,Order,Payment,Report}`. Controllers translate HTTP input/output, Form Requests validate input, Services enforce business rules and coordinate work, Repositories own database operations, and Resources define API representations. Policies and role middleware enforce access. Enums represent roles, product status, and order status. Shared infrastructure such as mail, console commands, migrations, and the response helper stays in Laravel's normal shared locations.
 
-## Learning Laravel
+The order path is deliberately transactional: product rows are locked in ascending ID order, stock is checked under those locks, server-side prices are snapshotted, and the order, items, and stock changes commit together. The payment webhook and expired-order command lock the order row before changing its status, so payment and cancellation serialize on the same record.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+## Start with Docker
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
-
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-## Laravel Sponsors
-
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
-
-### Premium Partners
-
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[WebReinvent](https://webreinvent.com/)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Jump24](https://jump24.co.uk)**
-- **[Redberry](https://redberry.international/laravel/)**
-- **[Active Logic](https://activelogic.com)**
-- **[byte5](https://byte5.de)**
-- **[OP.GG](https://op.gg)**
-
-## Contributing
-
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
-
-## Code of Conduct
-
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
-
-## API Authentication
-
-Authentication uses Laravel Sanctum personal access tokens. Start the Docker services and apply the migrations:
+Run these commands from the project directory in WSL Ubuntu:
 
 ```bash
-docker compose up -d
-docker compose exec app php artisan migrate
+cp .env.example .env
 ```
 
-### Register a customer
+Edit `.env` before starting the stack. Set unique local values for `DB_PASSWORD`, `DB_ROOT_PASSWORD`, `ADMIN_PASSWORD`, and `PAYMENT_WEBHOOK_SECRET`. Generate a webhook secret with `openssl rand -hex 32`. These are local examples; use a secret manager for deployed environments. Keep `.env` untracked.
 
-`POST /api/register`
+```bash
+docker compose build
+docker compose up -d
+docker compose ps
+docker compose exec app php artisan key:generate
+docker compose exec app php artisan migrate --seed
+```
+
+The API is served at <http://localhost:8080>. Check it with:
+
+```bash
+curl http://localhost:8080/api/health
+docker compose exec app php artisan about
+```
+
+The Docker image installs Composer dependencies during `docker compose build`. After editing `composer.json` or `composer.lock`, run `docker compose exec app composer install` to update the shared `vendor` volume, then restart the app and queue services with `docker compose restart app queue`.
+
+Services are `app` (PHP-FPM), `nginx`, `mysql`, and `queue`. MySQL data persists in the `mysql_data` volume. Compose waits for MySQL's health check before starting app and worker containers. Laravel connects to the database at `DB_HOST=mysql`.
+
+### Environment configuration
+
+`.env.example` lists the Laravel application, Docker/MySQL, admin-seed, webhook, queue/cache, mail, and optional Redis/AWS values. It contains placeholders only. Configure `DB_DATABASE`, `DB_USERNAME`, and passwords to match your local environment. `APP_KEY` is generated by `php artisan key:generate`. `PAYMENT_WEBHOOK_SECRET` must be a private random value shared with the payment provider. Before deployment, set `APP_ENV=production`, `APP_DEBUG=false`, and production-grade credentials/secrets.
+
+### Migrations and seeders
+
+```bash
+docker compose exec app php artisan migrate
+docker compose exec app php artisan db:seed
+```
+
+`DatabaseSeeder` creates the configured admin and a small sample catalog. The admin seeder requires `ADMIN_NAME`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` in `.env`; it creates or updates that account and never exposes an admin role through public registration. The product seeder uses SKU-based upserts and can be rerun safely.
+
+## Authentication and roles
+
+Public registration always creates a customer. Login returns a Sanctum bearer token. Pass it in `Authorization: Bearer <token>` for protected routes. Logout revokes only the presented token. Admins are seeded from local configuration; customers register through the API. Registration returns HTTP 201 with a safe user resource and no token; log in after registering. `GET /api/health` is public and returns `data.status: "ok"` in the common envelope.
+
+| Method | Endpoint | Access |
+| --- | --- | --- |
+| POST | `/api/register` | Public; creates customer |
+| POST | `/api/login` | Public |
+| POST | `/api/logout` | Sanctum token |
+| GET | `/api/me` | Sanctum token |
+| GET | `/api/health` | Public |
+
+Register request:
 
 ```json
 {
   "name": "Taylor Customer",
   "email": "taylor@example.test",
-  "password": "correct-horse-battery",
-  "password_confirmation": "correct-horse-battery"
+  "password": "local-example-password",
+  "password_confirmation": "local-example-password"
 }
 ```
 
-Public registration always assigns the `customer` role. A submitted `role` field is ignored.
-
-### Log in
-
-`POST /api/login`
+Login request:
 
 ```json
 {
   "email": "taylor@example.test",
-  "password": "correct-horse-battery"
+  "password": "local-example-password"
 }
 ```
 
-The response contains a one-time display of the Sanctum token:
+Login response (the plain token is returned only at login):
 
 ```json
 {
@@ -108,54 +99,25 @@ The response contains a one-time display of the Sanctum token:
   "message": "Login successful.",
   "data": {
     "user": { "id": 1, "name": "Taylor Customer", "email": "taylor@example.test", "role": "customer" },
-    "access_token": "1|your-plain-text-token",
+    "access_token": "1|<plain-text-token>",
     "token_type": "Bearer"
   }
 }
 ```
 
-Send it with protected requests as `Authorization: Bearer <access_token>`. `GET /api/me` returns the current user and `POST /api/logout` revokes only the presented token.
-
-| Method | Endpoint | Authentication |
-| --- | --- | --- |
-| POST | `/api/register` | Public |
-| POST | `/api/login` | Public |
-| POST | `/api/logout` | Sanctum Bearer token |
-| GET | `/api/me` | Sanctum Bearer token |
-
-### Create the admin account
-
-Set `ADMIN_NAME`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` in the untracked local `.env` file. `.env.example` contains placeholders only. Then run:
-
-```bash
-docker compose exec app php artisan db:seed --class=AdminUserSeeder
-```
-
-The seeder updates the configured account if it already exists, so it can be run repeatedly. Do not use the example password outside a disposable local environment.
-
-### Authentication tests
-
-Run the feature suite inside the app container against the configured MySQL database:
-
-```bash
-docker compose exec -e DB_CONNECTION=mysql app php artisan test --filter=AuthenticationTest
-```
-
 ## Products
 
-Every product endpoint requires a Sanctum Bearer token. Admins can create, update, delete, view, list, and filter products. Customers can list and view active products, search, and paginate. Product deletion is a soft delete; deleted and inactive products are hidden from customer queries.
+All product routes require Sanctum authentication. Customer queries are restricted in SQL to active, non-deleted products. Admins can see active/inactive products and soft-delete records. Listing supports `page`, `per_page` (maximum 100), `search` (name or SKU), and admin-only `status` (`active` or `inactive`).
 
-| Method | Endpoint | Permission |
+| Method | Endpoint | Access |
 | --- | --- | --- |
 | POST | `/api/products` | Admin |
 | PUT | `/api/products/{id}` | Admin |
 | GET | `/api/products` | Admin or customer |
-| GET | `/api/products/{id}` | Admin or customer, subject to visibility |
-| DELETE | `/api/products/{id}` | Admin |
+| GET | `/api/products/{id}` | Admin or customer (customer visibility applies) |
+| DELETE | `/api/products/{id}` | Admin; soft delete |
 
-### Create a product
-
-`POST /api/products` with an admin Bearer token:
+Create request:
 
 ```json
 {
@@ -167,94 +129,43 @@ Every product endpoint requires a Sanctum Bearer token. Admins can create, updat
 }
 ```
 
-For example, send an admin request with the token returned by admin login:
-
-```bash
-curl -X POST http://localhost:8080/api/products \
-  -H 'Accept: application/json' \
-  -H 'Authorization: Bearer <ADMIN_TOKEN>' \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Stainless Steel Water Bottle","sku":"HOME-BTL-101","price":"18.50","stock_quantity":24,"status":"active"}'
-```
-
-`PUT /api/products/1` accepts the same fields as a partial update. For example:
-
-```json
-{
-  "price": "19.95",
-  "stock_quantity": 30
-}
-```
-
-### Search and paginate
-
-Customers can search active products by name or SKU. Results use database pagination; `per_page` is limited to 100.
-
-```text
-GET /api/products?search=bottle&page=1&per_page=15
-GET /api/products?search=HOME-BTL&per_page=5
-```
-
-For example, a customer lists matching active products with their own token:
-
-```bash
-curl 'http://localhost:8080/api/products?search=bottle&page=1&per_page=15' \
-  -H 'Accept: application/json' \
-  -H 'Authorization: Bearer <CUSTOMER_TOKEN>'
-```
-
-Admins can filter either status:
-
-```text
-GET /api/products?status=inactive&page=1&per_page=20
-```
-
-Customers are always restricted to active products. Requesting the inactive status filter returns 403. An inactive or soft-deleted product requested by ID returns 404 to a customer.
-
-The response includes an explicit product representation and pagination metadata:
+Successful creation returns the explicit product fields and timestamps, for example:
 
 ```json
 {
   "success": true,
-  "message": "Products retrieved successfully.",
+  "message": "Product created successfully.",
   "data": {
-    "products": [
-      {
-        "id": 1,
-        "name": "Stainless Steel Water Bottle",
-        "sku": "HOME-BTL-101",
-        "price": "18.50",
-        "stock_quantity": 24,
-        "status": "active",
-        "created_at": "2026-11-26T12:00:00.000000Z",
-        "updated_at": "2026-11-26T12:00:00.000000Z"
-      }
-    ],
-    "pagination": {
-      "current_page": 1,
-      "per_page": 15,
-      "total": 1,
-      "last_page": 1,
-      "from": 1,
-      "to": 1
+    "product": {
+      "id": 1,
+      "name": "Stainless Steel Water Bottle",
+      "sku": "HOME-BTL-101",
+      "price": "18.50",
+      "stock_quantity": 24,
+      "status": "active",
+      "created_at": "2026-11-27T12:00:00.000000Z",
+      "updated_at": "2026-11-27T12:00:00.000000Z"
     }
   }
 }
 ```
 
+Updates accept a partial set of the same editable fields. Examples:
+
+```text
+GET /api/products?search=bottle&page=1&per_page=15
+GET /api/products?status=inactive&page=1&per_page=20   (admin only)
+```
+
 ## Orders
 
-All order endpoints require a Sanctum Bearer token. Customers can place orders and see only their own order history. Admins can read all orders, but cannot place orders through the customer checkout endpoint.
-
-| Method | Endpoint | Permission |
+| Method | Endpoint | Access |
 | --- | --- | --- |
 | POST | `/api/orders` | Customer |
-| GET | `/api/orders` | Customer (own orders) or admin (all orders) |
+| GET | `/api/orders` | Customer (own orders) or admin (all) |
 | GET | `/api/orders/{id}` | Owner or admin |
 
-### Place an order
-
-`POST /api/orders` accepts product IDs and positive quantities. Each product ID may appear once; duplicate IDs receive HTTP 422. The API ignores any client-supplied prices or totals and uses the current product price from MySQL.
+Place-order request:
 
 ```json
 {
@@ -265,117 +176,32 @@ All order endpoints require a Sanctum Bearer token. Customers can place orders a
 }
 ```
 
-Successful creation returns HTTP 201:
+Duplicate product IDs in one request are rejected with 422. The server reads current prices and ignores client-supplied prices/totals. Amounts use decimal database columns and BCMath string arithmetic. Each order item saves the product name, SKU, unit price, quantity, and line total at purchase time.
 
-```json
-{
-  "success": true,
-  "message": "Order placed successfully.",
-  "data": {
-    "order": {
-      "id": 1,
-      "order_number": "ORD-01JABCDEF0123456789ABCDEF0",
-      "total_amount": "42.25",
-      "status": "pending",
-      "items": [
-        {
-          "id": 1,
-          "product_id": 1,
-          "product_name": "Stainless Steel Water Bottle",
-          "product_sku": "HOME-BTL-101",
-          "unit_price": "18.50",
-          "quantity": 2,
-          "line_total": "37.00"
-        },
-        {
-          "id": 2,
-          "product_id": 2,
-          "product_name": "Insulated Steel Cup",
-          "product_sku": "HOME-CUP-204",
-          "unit_price": "5.25",
-          "quantity": 1,
-          "line_total": "5.25"
-        }
-      ]
-    }
-  }
-}
-```
+Order creation uses one MySQL transaction and `SELECT ... FOR UPDATE` on product rows in ascending product ID order. It checks active status and available stock while holding the locks, inserts the order and snapshot items, then decrements stock. A short-stock failure rolls back all writes. Customers receive 403 when accessing another customer's order; missing IDs return 404. Lists are paginated and eager-load order items.
 
-Amounts are stored and calculated as decimal strings using BCMath, so currency calculations do not use floating-point arithmetic. Order items save the product name, SKU, and unit price at checkout; later product edits do not rewrite order history. Order statuses are `pending`, `paid`, `cancelled`, and `shipped`. This phase creates orders as `pending` and exposes read operations; later phases will own payment and cancellation workflows.
+Statuses are `pending`, `paid`, `cancelled`, and `shipped`. The API creates pending orders. Payment changes pending to paid; the expiration command changes eligible pending orders to cancelled. No shipping workflow is provided.
 
-Order creation runs in one MySQL transaction. It locks requested product rows with `SELECT ... FOR UPDATE`, in ascending product ID order, checks that each product is active and not deleted, and checks stock while holding the locks. It then writes the order and item snapshots and applies stock reductions before committing. If any product is unavailable or short on stock, the transaction rolls back and returns HTTP 422. Concurrent purchases for the final unit queue behind the same row lock; after the first request commits, the next request sees the reduced stock and fails instead of overselling. The MySQL concurrency integration test exercises two simultaneous HTTP requests contending for one unit.
+## Queued confirmation email
 
-Customers receive 403 when viewing another customer's order. A missing order returns 404; unauthenticated requests return 401. Listing supports `page` and `per_page` (maximum 100) and returns pagination metadata. Order rows and their item snapshots are loaded with eager loading.
+After the order transaction commits, Laravel queues one confirmation mailable containing the saved order and item snapshots. Queue dispatch does not prove that a message was delivered. `MAIL_MAILER=log` uses a redacted local transport that logs a generic handling message and does not send email or log recipient/content. To send mail, set `MAIL_MAILER=smtp` and configure `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, and `MAIL_FROM_ADDRESS` in `.env`.
 
-```text
-GET /api/orders?page=1&per_page=15
-GET /api/orders/1
-```
-
-Insufficient stock, inactive/deleted products, invalid item data, or duplicate product IDs return the common 422 validation response:
-
-```json
-{
-  "success": false,
-  "message": "Validation failed.",
-  "data": null,
-  "errors": { "items": ["Insufficient stock for product 1."] }
-}
-```
-
-Run the order feature tests and the full suite inside Docker with MySQL configured:
-
-```bash
-docker compose exec -e DB_CONNECTION=mysql app php artisan test --filter=Order
-docker compose exec -e DB_CONNECTION=mysql app php artisan test
-```
-
-## Queued order confirmation email
-
-After an order transaction commits, the API queues one `OrderConfirmationMail` to the customer's saved email address. The message uses the saved order number, total, and item snapshots. A failed order does not queue mail. Queue dispatch errors are logged with the order ID and exception type only; permanent delivery failures use Laravel's failed-job handling and a sanitized application log entry.
-
-The default settings in `.env.example` are:
-
-```dotenv
-QUEUE_CONNECTION=database
-MAIL_MAILER=log
-MAIL_FROM_ADDRESS="hello@example.com"
-MAIL_FROM_NAME="${APP_NAME}"
-```
-
-With `MAIL_MAILER=log`, the order service routes this mailable through the local `redacted_log` transport. It records only that the local transport handled a message; it does not log recipient addresses or message content, and it does not deliver email. To deliver real messages, set `MAIL_MAILER=smtp` and configure `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM_ADDRESS`, and `MAIL_FROM_NAME` with your SMTP provider's values. The SMTP credentials belong in the untracked `.env`, never in Git.
-
-The Compose `queue` service runs `php artisan queue:work database --sleep=3 --tries=3 --timeout=90`. Start or restart it with:
+Run or inspect the database queue worker:
 
 ```bash
 docker compose up -d queue
 docker compose logs -f queue
 ```
 
-Each confirmation allows at most three attempts, with 10-second and 30-second delays before retries. After the final failure Laravel stores the job in `failed_jobs`; inspect or retry failed jobs with `php artisan queue:failed` and `php artisan queue:retry <id>`. The mailer's `ShouldQueueAfterCommit` contract also defers dispatch when an outer database transaction is still open.
-
-Run the focused order confirmation tests and full PHPUnit suite inside Docker:
-
-```bash
-docker compose exec -e DB_CONNECTION=mysql app php artisan test --filter=OrderConfirmationTest
-docker compose exec -e DB_CONNECTION=mysql app php artisan test --filter=RedactedLogTransportTest
-docker compose exec -e DB_CONNECTION=mysql app php artisan test
-```
+Each mailable allows three attempts with 10- and 30-second retry delays. Permanently failed jobs go to `failed_jobs`; inspect and retry using `php artisan queue:failed` and `php artisan queue:retry <id>`.
 
 ## Payment webhook
 
-`POST /api/webhooks/payment` is public and does not use Sanctum. The provider must send an `X-Signature` header containing the 64-character hexadecimal HMAC-SHA256 digest of the exact raw JSON request body. Laravel checks the signature in middleware with `hash_equals` before validating fields or accessing payment data.
+| Method | Endpoint | Access |
+| --- | --- | --- |
+| POST | `/api/webhooks/payment` | Public route protected by `X-Signature` HMAC |
 
-Set a private `PAYMENT_WEBHOOK_SECRET` in the untracked `.env`. Generate a local value with:
-
-```bash
-openssl rand -hex 32
-```
-
-The `.env.example` value is only a placeholder. Never commit or log the real secret.
-
-Expected successful payload:
+Example payload:
 
 ```json
 {
@@ -386,68 +212,44 @@ Expected successful payload:
 }
 ```
 
-`transaction_id`, `order_id`, and `status: "success"` are required. `amount` is optional; when supplied, it must match the saved order total. The server stores the saved total rather than trusting a supplied amount. Only pending orders can transition to paid. Cancelled, shipped, or otherwise non-pending orders are rejected with HTTP 409; invalid payloads or amount mismatches return 422, and a missing or invalid signature returns 401.
+The provider calculates lowercase hexadecimal `hash_hmac('sha256', $rawBody, $secret)` over the exact UTF-8 bytes it sends and supplies it in `X-Signature`. Laravel checks it with `hash_equals` before validation or database access. Configure the same private `PAYMENT_WEBHOOK_SECRET` in `.env` and the provider. Do not alter whitespace/encoding between signing and sending.
 
-For a PHP provider-side signature example, sign the exact bytes sent over HTTP:
+Successful processing returns `data.duplicate: false`; a repeated delivery for the same order and transaction returns `data.duplicate: true` and the existing payment. A payment response contains `id`, `order_id`, `transaction_id`, `amount`, and `status` under `data.payment`.
 
-```php
-$rawBody = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-$signature = hash_hmac('sha256', $rawBody, $secret);
-// Send $rawBody unchanged and set X-Signature: $signature.
-```
-
-Successful notifications create one payment row under a unique `transaction_id` constraint and mark the matching order paid in one transaction. Repeating the same transaction ID for the same order returns HTTP 200 with `duplicate: true` and makes no additional changes. Reusing a transaction ID for a different order returns HTTP 409. The unique constraint plus order-row locking makes concurrent deliveries safe.
-
-A repeated delivery returns the same payment record with an explicit duplicate flag:
-
-```json
-{
-  "success": true,
-  "message": "Payment notification was already processed.",
-  "data": {
-    "payment": { "id": 1, "order_id": 1, "transaction_id": "TXN123456", "amount": "1500.00", "status": "success" },
-    "duplicate": true
-  }
-}
-```
+Example successful webhook response:
 
 ```json
 {
   "success": true,
   "message": "Payment processed successfully.",
   "data": {
-    "payment": {
-      "id": 1,
-      "order_id": 1,
-      "transaction_id": "TXN123456",
-      "amount": "1500.00",
-      "status": "success"
-    },
+    "payment": { "id": 1, "order_id": 1, "transaction_id": "TXN123456", "amount": "1500.00", "status": "success" },
     "duplicate": false
   }
 }
 ```
 
-The webhook does not change stock or the saved order total. Run its focused tests and then the full suite inside Docker:
+Only a pending order can be paid. If an amount is provided, it must equal the saved order total. A unique binary-collated transaction ID plus an order-row lock makes repeat deliveries idempotent: same transaction/order returns HTTP 200 with `duplicate: true`; reusing a transaction ID for another order returns 409. Invalid/missing signatures return 401; invalid payload/amount returns 422. Webhooks do not modify stock or order totals.
 
-```bash
-docker compose exec -e DB_CONNECTION=mysql app php artisan test --filter=PaymentWebhookTest
-docker compose exec -e DB_CONNECTION=mysql app php artisan test
+Example local signature generation (the secret here is a placeholder only):
+
+```php
+$rawBody = '{"transaction_id":"TXN123456","order_id":1,"amount":"1500.00","status":"success"}';
+$localOnlySecret = 'replace-with-your-local-test-secret';
+$signature = hash_hmac('sha256', $rawBody, $localOnlySecret);
+// Send $rawBody unchanged and set X-Signature to $signature.
 ```
-
-Product endpoints return 401 without a valid token, 403 when an authenticated role lacks permission, 404 when a product is missing or not visible to a customer, and 422 for invalid input.
 
 ## Admin top-products report
 
-`GET /api/admin/reports/top-products` requires a Sanctum bearer token for an admin account. Both `from_date` and `to_date` are required in `YYYY-MM-DD` format; `to_date` must be the same day or later. The interval includes both complete calendar days and uses the order creation timestamp.
+| Method | Endpoint | Access |
+| --- | --- | --- |
+| GET | `/api/admin/reports/top-products` | Admin Sanctum token |
 
-Only `paid` and `shipped` orders count as sold. Pending and cancelled orders are excluded. Quantities are summed from saved order-item product snapshots, so later catalog edits or product soft deletion do not rewrite historical report names or SKUs. Results are ordered by quantity sold descending and product ID ascending for ties, with at most five rows. A valid interval without sales returns an empty `data.products` array.
+Required query parameters are `from_date` and `to_date` in `YYYY-MM-DD` format, with `to_date` on/after `from_date`. Both full calendar days are included; filtering uses `orders.created_at`. The report counts only paid and shipped orders, sums order-item snapshot quantities in one aggregate JOIN/SUM/GROUP BY query, sorts quantity descending then product ID ascending, and returns at most five rows. It does not join the current catalog, so soft deletion and catalog edits do not replace saved snapshot names/SKUs. No matches returns an empty array.
 
-Example request:
-
-```http
+```text
 GET /api/admin/reports/top-products?from_date=2026-06-01&to_date=2026-06-30
-Authorization: Bearer <admin-token>
 ```
 
 Example response:
@@ -458,49 +260,60 @@ Example response:
   "message": "Top products report generated successfully.",
   "data": {
     "products": [
-      {
-        "product_id": 12,
-        "product_name": "Insulated Bottle",
-        "product_sku": "BOTTLE-12",
-        "total_quantity_sold": 27
-      }
+      { "product_id": 12, "product_name": "Insulated Bottle", "product_sku": "BOTTLE-12", "total_quantity_sold": 27 }
     ]
   }
 }
 ```
 
-The report is calculated by one SQL aggregate query that joins order items to orders, filters by order date and eligible status, groups the snapshots, sums quantities, sorts, and applies `LIMIT 5`. The orders table has a composite status/date index to support the report filters.
+## Expired pending order cancellation and scheduler
 
-Unauthenticated requests receive 401, authenticated customers receive 403, and invalid/missing dates receive 422.
+Run `php artisan orders:cancel-expired` manually to cancel pending orders created more than 30 minutes ago. The command locks each candidate order, rechecks its status and age, then restores all item stock and changes status in one transaction. Product rows are locked in ascending ID order. Concurrent payment uses the same order lock, so a paid order is not cancelled or restocked; failed cancellation rolls back both changes. Re-running the command does not restore stock a second time.
 
-## Expired pending order cancellation
-
-Run `php artisan orders:cancel-expired` to find pending orders created more than 30 minutes ago. The command locks each candidate order and rechecks its status and age before proceeding. In one transaction it locks the related product rows in ascending ID order, restores stock for every order item, and marks the order cancelled. A concurrent payment update uses the same order-row lock, so whichever operation commits first determines the valid status; a paid order is never cancelled or restocked by a later run. Failed order transactions roll back both the stock update and status change.
-
-Laravel 11 registers the command in `routes/console.php` to run every minute with `withoutOverlapping()`. In production, run one scheduler process continuously:
+Laravel 11 registers the command once in `routes/console.php`, every minute with `withoutOverlapping()`. Queue workers do not run the scheduler. In production, run a single scheduler process continuously:
 
 ```bash
 php artisan schedule:work
 ```
 
-Alternatively, configure the host scheduler (cron) to invoke `php artisan schedule:run` every minute. The Docker queue worker does not run the scheduler. For local Docker development, start a separate process in the app container:
+Or configure host cron to invoke `php artisan schedule:run` once per minute. For local Docker development, run the scheduler in a separate terminal:
 
 ```bash
 docker compose exec app php artisan schedule:work
 ```
 
-The focused cancellation and MySQL payment/cancellation contention tests are:
+## API response and error conventions
 
-```bash
-docker compose exec -e DB_CONNECTION=mysql app php artisan test --filter=ExpiredOrderCancellation
-docker compose exec -e DB_CONNECTION=mysql app php artisan test --filter=ExpiredCancellationPaymentConcurrency
+Responses use `{ "success": boolean, "message": string, "data": object|null }`; validation errors add an `errors` object keyed by input field. Typical statuses are 200 for reads/updates, 201 for creation, 401 for unauthenticated/invalid signature, 403 for forbidden access, 404 for missing resources, 409 for payment/status conflicts, and 422 for invalid input or insufficient stock. Unexpected server errors must not be exposed to API clients.
+
+Validation example:
+
+```json
+{
+  "success": false,
+  "message": "Validation failed.",
+  "data": null,
+  "errors": { "items": ["Insufficient stock for product 1."] }
+}
 ```
 
-### Product tests and sample catalog
+## Postman
+
+Import [`postman/Order-Management-API.postman_collection.json`](postman/Order-Management-API.postman_collection.json). Set collection variables for the local base URL, customer/admin credentials, and a local-only webhook secret. The login requests save their bearer tokens automatically. The webhook pre-request script signs the exact raw body; its example order and secret must be changed to match local test data and `.env`.
+
+## Tests and code style
+
+Tests use PHPUnit and the Docker MySQL service. They include role/validation coverage, stock and snapshot assertions, report query-count inspection, webhook idempotency, command rollback, and MySQL concurrency checks. The concurrency cases use separate processes/connections; SQLite does not establish MySQL row-locking behavior.
 
 ```bash
-docker compose exec -e DB_CONNECTION=mysql app php artisan test --filter=ProductManagementTest
-docker compose exec app php artisan db:seed --class=ProductSeeder
+docker compose exec -e DB_CONNECTION=mysql app php artisan test
+docker compose exec app vendor/bin/pint --test
 ```
 
-The product seeder uses SKU-based upserts, so it can be run repeatedly without duplicating its sample catalog.
+For a fresh local database, run `docker compose exec app php artisan migrate:fresh --seed` only when existing local data can be discarded. Tests using `DatabaseMigrations` also rebuild schema; run them against a disposable MySQL database.
+
+## Known limits and trade-offs
+
+- The API has no shipping workflow, payment-provider SDK, refunds, or cancellation endpoint; only the signed payment callback and timed expiration are implemented.
+- The database queue is suitable for this assignment and local deployment. A production installation should select and monitor an appropriate durable queue backend and configure SMTP/provider delivery.
+- The concurrency tests exercise MySQL within the provided Docker network. Production isolation settings, connection-pool sizing, and operational alerting still require deployment-specific validation.

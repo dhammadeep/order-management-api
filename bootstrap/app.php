@@ -10,6 +10,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -57,6 +58,26 @@ return Application::configure(basePath: dirname(__DIR__))
                 return ResponseHelper::respond(
                     code: 409,
                     message: $exception->getMessage(),
+                );
+            }
+        });
+
+        $exceptions->render(function (HttpExceptionInterface $exception, Request $request) {
+            if ($request->is('api/*')) {
+                $status = $exception->getStatusCode();
+
+                return ResponseHelper::respond(
+                    code: $status,
+                    message: $status === 404 ? 'Resource not found.' : 'Request could not be completed.',
+                );
+            }
+        });
+
+        $exceptions->render(function (Throwable $exception, Request $request) {
+            if ($request->is('api/*')) {
+                return ResponseHelper::respond(
+                    code: 500,
+                    message: 'An unexpected error occurred.',
                 );
             }
         });
