@@ -64,3 +64,79 @@ If you discover a security vulnerability within Laravel, please send an e-mail t
 ## License
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+
+## API Authentication
+
+Authentication uses Laravel Sanctum personal access tokens. Start the Docker services and apply the migrations:
+
+```bash
+docker compose up -d
+docker compose exec app php artisan migrate
+```
+
+### Register a customer
+
+`POST /api/register`
+
+```json
+{
+  "name": "Taylor Customer",
+  "email": "taylor@example.test",
+  "password": "correct-horse-battery",
+  "password_confirmation": "correct-horse-battery"
+}
+```
+
+Public registration always assigns the `customer` role. A submitted `role` field is ignored.
+
+### Log in
+
+`POST /api/login`
+
+```json
+{
+  "email": "taylor@example.test",
+  "password": "correct-horse-battery"
+}
+```
+
+The response contains a one-time display of the Sanctum token:
+
+```json
+{
+  "success": true,
+  "message": "Login successful.",
+  "data": {
+    "user": { "id": 1, "name": "Taylor Customer", "email": "taylor@example.test", "role": "customer" },
+    "access_token": "1|your-plain-text-token",
+    "token_type": "Bearer"
+  }
+}
+```
+
+Send it with protected requests as `Authorization: Bearer <access_token>`. `GET /api/me` returns the current user and `POST /api/logout` revokes only the presented token.
+
+| Method | Endpoint | Authentication |
+| --- | --- | --- |
+| POST | `/api/register` | Public |
+| POST | `/api/login` | Public |
+| POST | `/api/logout` | Sanctum Bearer token |
+| GET | `/api/me` | Sanctum Bearer token |
+
+### Create the admin account
+
+Set `ADMIN_NAME`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` in the untracked local `.env` file. `.env.example` contains placeholders only. Then run:
+
+```bash
+docker compose exec app php artisan db:seed --class=AdminUserSeeder
+```
+
+The seeder updates the configured account if it already exists, so it can be run repeatedly. Do not use the example password outside a disposable local environment.
+
+### Authentication tests
+
+Run the feature suite inside the app container against the configured MySQL database:
+
+```bash
+docker compose exec -e DB_CONNECTION=mysql app php artisan test --filter=AuthenticationTest
+```
