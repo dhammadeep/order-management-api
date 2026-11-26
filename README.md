@@ -242,6 +242,95 @@ The response includes an explicit product representation and pagination metadata
 }
 ```
 
+## Orders
+
+All order endpoints require a Sanctum Bearer token. Customers can place orders and see only their own order history. Admins can read all orders, but cannot place orders through the customer checkout endpoint.
+
+| Method | Endpoint | Permission |
+| --- | --- | --- |
+| POST | `/api/orders` | Customer |
+| GET | `/api/orders` | Customer (own orders) or admin (all orders) |
+| GET | `/api/orders/{id}` | Owner or admin |
+
+### Place an order
+
+`POST /api/orders` accepts product IDs and positive quantities. Each product ID may appear once; duplicate IDs receive HTTP 422. The API ignores any client-supplied prices or totals and uses the current product price from MySQL.
+
+```json
+{
+  "items": [
+    { "product_id": 1, "quantity": 2 },
+    { "product_id": 2, "quantity": 1 }
+  ]
+}
+```
+
+Successful creation returns HTTP 201:
+
+```json
+{
+  "success": true,
+  "message": "Order placed successfully.",
+  "data": {
+    "order": {
+      "id": 1,
+      "order_number": "ORD-01JABCDEF0123456789ABCDEF0",
+      "total_amount": "42.25",
+      "status": "pending",
+      "items": [
+        {
+          "id": 1,
+          "product_id": 1,
+          "product_name": "Stainless Steel Water Bottle",
+          "product_sku": "HOME-BTL-101",
+          "unit_price": "18.50",
+          "quantity": 2,
+          "line_total": "37.00"
+        },
+        {
+          "id": 2,
+          "product_id": 2,
+          "product_name": "Insulated Steel Cup",
+          "product_sku": "HOME-CUP-204",
+          "unit_price": "5.25",
+          "quantity": 1,
+          "line_total": "5.25"
+        }
+      ]
+    }
+  }
+}
+```
+
+Amounts are stored and calculated as decimal strings using BCMath, so currency calculations do not use floating-point arithmetic. Order items save the product name, SKU, and unit price at checkout; later product edits do not rewrite order history. Order statuses are `pending`, `paid`, `cancelled`, and `shipped`. This phase creates orders as `pending` and exposes read operations; later phases will own payment and cancellation workflows.
+
+Order creation runs in one MySQL transaction. It locks requested product rows with `SELECT ... FOR UPDATE`, in ascending product ID order, checks that each product is active and not deleted, and checks stock while holding the locks. It then writes the order and item snapshots and applies stock reductions before committing. If any product is unavailable or short on stock, the transaction rolls back and returns HTTP 422. Concurrent purchases for the final unit queue behind the same row lock; after the first request commits, the next request sees the reduced stock and fails instead of overselling. The MySQL concurrency integration test exercises two simultaneous HTTP requests contending for one unit.
+
+Customers receive 403 when viewing another customer's order. A missing order returns 404; unauthenticated requests return 401. Listing supports `page` and `per_page` (maximum 100) and returns pagination metadata. Order rows and their item snapshots are loaded with eager loading.
+
+```text
+GET /api/orders?page=1&per_page=15
+GET /api/orders/1
+```
+
+Insufficient stock, inactive/deleted products, invalid item data, or duplicate product IDs return the common 422 validation response:
+
+```json
+{
+  "success": false,
+  "message": "Validation failed.",
+  "data": null,
+  "errors": { "items": ["Insufficient stock for product 1."] }
+}
+```
+
+Run the order feature tests and the full suite inside Docker with MySQL configured:
+
+```bash
+docker compose exec -e DB_CONNECTION=mysql app php artisan test --filter=Order
+docker compose exec -e DB_CONNECTION=mysql app php artisan test
+```
+
 Product endpoints return 401 without a valid token, 403 when an authenticated role lacks permission, 404 when a product is missing or not visible to a customer, and 422 for invalid input.
 
 ### Product tests and sample catalog
