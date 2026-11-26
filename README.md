@@ -363,6 +363,78 @@ docker compose exec -e DB_CONNECTION=mysql app php artisan test --filter=Redacte
 docker compose exec -e DB_CONNECTION=mysql app php artisan test
 ```
 
+## Payment webhook
+
+`POST /api/webhooks/payment` is public and does not use Sanctum. The provider must send an `X-Signature` header containing the 64-character hexadecimal HMAC-SHA256 digest of the exact raw JSON request body. Laravel checks the signature in middleware with `hash_equals` before validating fields or accessing payment data.
+
+Set a private `PAYMENT_WEBHOOK_SECRET` in the untracked `.env`. Generate a local value with:
+
+```bash
+openssl rand -hex 32
+```
+
+The `.env.example` value is only a placeholder. Never commit or log the real secret.
+
+Expected successful payload:
+
+```json
+{
+  "transaction_id": "TXN123456",
+  "order_id": 1,
+  "amount": "1500.00",
+  "status": "success"
+}
+```
+
+`transaction_id`, `order_id`, and `status: "success"` are required. `amount` is optional; when supplied, it must match the saved order total. The server stores the saved total rather than trusting a supplied amount. Only pending orders can transition to paid. Cancelled, shipped, or otherwise non-pending orders are rejected with HTTP 409; invalid payloads or amount mismatches return 422, and a missing or invalid signature returns 401.
+
+For a PHP provider-side signature example, sign the exact bytes sent over HTTP:
+
+```php
+$rawBody = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+$signature = hash_hmac('sha256', $rawBody, $secret);
+// Send $rawBody unchanged and set X-Signature: $signature.
+```
+
+Successful notifications create one payment row under a unique `transaction_id` constraint and mark the matching order paid in one transaction. Repeating the same transaction ID for the same order returns HTTP 200 with `duplicate: true` and makes no additional changes. Reusing a transaction ID for a different order returns HTTP 409. The unique constraint plus order-row locking makes concurrent deliveries safe.
+
+A repeated delivery returns the same payment record with an explicit duplicate flag:
+
+```json
+{
+  "success": true,
+  "message": "Payment notification was already processed.",
+  "data": {
+    "payment": { "id": 1, "order_id": 1, "transaction_id": "TXN123456", "amount": "1500.00", "status": "success" },
+    "duplicate": true
+  }
+}
+```
+
+```json
+{
+  "success": true,
+  "message": "Payment processed successfully.",
+  "data": {
+    "payment": {
+      "id": 1,
+      "order_id": 1,
+      "transaction_id": "TXN123456",
+      "amount": "1500.00",
+      "status": "success"
+    },
+    "duplicate": false
+  }
+}
+```
+
+The webhook does not change stock or the saved order total. Run its focused tests and then the full suite inside Docker:
+
+```bash
+docker compose exec -e DB_CONNECTION=mysql app php artisan test --filter=PaymentWebhookTest
+docker compose exec -e DB_CONNECTION=mysql app php artisan test
+```
+
 Product endpoints return 401 without a valid token, 403 when an authenticated role lacks permission, 404 when a product is missing or not visible to a customer, and 422 for invalid input.
 
 ### Product tests and sample catalog

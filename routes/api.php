@@ -3,6 +3,8 @@
 use App\Helpers\ResponseHelper;
 use App\Http\Auth\Controllers\AuthController;
 use App\Http\Order\Controllers\OrderController;
+use App\Http\Payment\Controllers\PaymentWebhookController;
+use App\Http\Payment\Middleware\VerifyPaymentWebhookSignature;
 use App\Http\Product\Controllers\ProductController;
 use Illuminate\Support\Facades\Route;
 
@@ -14,6 +16,9 @@ Route::get('/health', fn () => ResponseHelper::respond(
 
 Route::post('/register', [AuthController::class, 'register'])->name('api.auth.register');
 Route::post('/login', [AuthController::class, 'login'])->name('api.auth.login');
+Route::post('/webhooks/payment', PaymentWebhookController::class)
+    ->middleware(VerifyPaymentWebhookSignature::class)
+    ->name('api.webhooks.payment');
 
 Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/logout', [AuthController::class, 'logout'])->name('api.auth.logout');

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Order\Repositories;
 
+use App\Http\Order\Enums\OrderStatus;
 use App\Http\Order\Models\Order;
 use Illuminate\Pagination\LengthAwarePaginator;
 
@@ -14,6 +15,20 @@ use Illuminate\Pagination\LengthAwarePaginator;
  */
 final class OrderRepository
 {
+    public function lockById(int $id): ?Order
+    {
+        return Order::query()
+            ->whereKey($id)
+            ->lockForUpdate()
+            ->first();
+    }
+
+    public function markPaid(Order $order): void
+    {
+        $order->status = OrderStatus::Paid;
+        $order->save();
+    }
+
     /**
      * Persist an order and all of its items using a small, fixed number of queries.
      * The caller owns the surrounding transaction.

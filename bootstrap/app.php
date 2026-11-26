@@ -2,6 +2,7 @@
 
 use App\Helpers\ResponseHelper;
 use App\Http\Auth\Middleware\EnsureUserHasRole;
+use App\Http\Payment\Exceptions\PaymentConflictException;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
@@ -47,6 +48,15 @@ return Application::configure(basePath: dirname(__DIR__))
                 return ResponseHelper::respond(
                     code: 403,
                     message: 'You are not authorized to access this resource.',
+                );
+            }
+        });
+
+        $exceptions->render(function (PaymentConflictException $exception, Request $request) {
+            if ($request->is('api/*')) {
+                return ResponseHelper::respond(
+                    code: 409,
+                    message: $exception->getMessage(),
                 );
             }
         });
